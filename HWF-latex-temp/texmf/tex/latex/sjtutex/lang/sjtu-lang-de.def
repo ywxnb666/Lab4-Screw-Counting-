@@ -1,0 +1,91 @@
+%%
+%% This is file `sjtu-lang-de.def',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% sjtutex.dtx  (with options: `lang,de')
+%% 
+%%     Copyright (C) SJTUG
+%%       2018--2026 Weijian Wu   <alexarawu@outlook.com>
+%%       2022--2026 Zilong Li    <logcreative@outlook.com>
+%%       2024--2026 Boshi Yuan   <nemoyuan2008@outlook.com>
+%% 
+%%     This work may be distributed and/or modified under the
+%%     conditions of the LaTeX Project Public License, either version 1.3c
+%%     of this license or (at your option) any later version.
+%%     The latest version of this license is in
+%%       https://www.latex-project.org/lppl.txt
+%%     and version 1.3c or later is part of all distributions of LaTeX
+%%     version 2008 or later.
+%% 
+\GetIdInfo$Id: sjtutex.dtx 19925b2 2026-02-26 23:13:21 +0800 Alexara Wu <alexarawu@outlook.com> $
+  {German specific definition (SJTUTeX)}
+\ProvidesExplFile{sjtu-lang-de.def}
+  {\ExplFileDate}{2.3.1}{\ExplFileDescription}
+\NewHook { sjtutex / lang / de }
+\keys_define:nn { sjtu / private }
+  {
+    lang / de .code:n =
+      {
+        \tl_set_eq:NN \l__sjtu_lang_tl \l_keys_value_tl
+        \normalfont
+        \UseHook { sjtutex / lang / de }
+      } ,
+    de .meta:n = { lang = de } ,
+    de .groups:n = { lang }
+  }
+\AddToHook { sjtutex / lang / de }
+  {
+    \tl_set:Nn \languagename { ngerman }
+    \ctex_set:n { autoindent = 1.5 em }
+  }
+\cs_set_eq:NN \__sjtu_title_case_aux_de:n \MakeUppercase
+\clist_const:Nn \c__sjtu_name_month_de_clist
+  {
+    Januar, Februar, März, April, Mai, Juni,
+    Juli, August, September, Oktober, November, Dezember
+  }
+\cs_new:Npn \__sjtu_date_aux_de:nnn #1#2#3
+  {
+    \clist_item:Nn \c__sjtu_name_month_de_clist {#2} ~
+    {#3} ,~ \int_to_arabic:n {#1}
+  }
+\cs_new:Npn \__sjtu_date_aux_de:w #1-#2-#3 \q_stop
+  { \__sjtu_date_aux_de:nnn {#1} {#2} {#3} }
+\cs_new:Npn \__sjtu_date_aux_short_de:nn #1#2
+  {
+    \clist_item:Nn \c__sjtu_name_month_de_clist {#2} ,~
+    \int_to_arabic:n {#1}
+  }
+\cs_new:Npn \__sjtu_date_aux_short_de:w #1-#2 \q_stop
+  { \__sjtu_date_aux_short_de:nn {#1} {#2} }
+\clist_map_inline:nn
+  {
+    { keywords } { Schlüsselwörter } ,
+    { info_sep } { \hbox { :~ }    } ,
+    { item_sep } { ,~              }
+  }
+  { \__sjtu_name_const:nnn { de } #1 }
+\IfClassLoadedF { sjtuthesis } { \endinput }
+\__sjtu_name_const_from_clist:nnnn { de }
+  { degree_level } { \g__sjtu_thesis_type_int }
+  { Bachelor, Master, Doktor }
+\clist_map_inline:nn
+  {
+    { univ             } { Shanghai~ Jiao~ Tong~ Universität } ,
+    { address          } { Shanghai,~ VR~ China              } ,
+    { title_page       } { Titelblatt                        } ,
+    { declaration      } { Eidesstattliche~ Erklärung        } ,
+    { abstract         } { Abstrakt                          }
+  }
+  { \__sjtu_name_const:nnn { de } #1 }
+\tl_const:Nn \c__sjtu_name_subject_de_tl
+  {
+    Eine~ Dissertation~ Eingereicht~ an \\
+    der~ { \c__sjtu_name_univ_de_tl }~ für~
+    { \c__sjtu_name_degree_level_de_tl } titel
+  }
+\endinput
+%%
+%% End of file `sjtu-lang-de.def'.

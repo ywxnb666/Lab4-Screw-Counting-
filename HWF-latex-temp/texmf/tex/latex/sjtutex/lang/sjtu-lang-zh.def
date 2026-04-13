@@ -1,0 +1,107 @@
+%%
+%% This is file `sjtu-lang-zh.def',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% sjtutex.dtx  (with options: `lang,zh')
+%% 
+%%     Copyright (C) SJTUG
+%%       2018--2026 Weijian Wu   <alexarawu@outlook.com>
+%%       2022--2026 Zilong Li    <logcreative@outlook.com>
+%%       2024--2026 Boshi Yuan   <nemoyuan2008@outlook.com>
+%% 
+%%     This work may be distributed and/or modified under the
+%%     conditions of the LaTeX Project Public License, either version 1.3c
+%%     of this license or (at your option) any later version.
+%%     The latest version of this license is in
+%%       https://www.latex-project.org/lppl.txt
+%%     and version 1.3c or later is part of all distributions of LaTeX
+%%     version 2008 or later.
+%% 
+\GetIdInfo$Id: sjtutex.dtx 19925b2 2026-02-26 23:13:21 +0800 Alexara Wu <alexarawu@outlook.com> $
+  {Chinese specific definition (SJTUTeX)}
+\ProvidesExplFile{sjtu-lang-zh.def}
+  {\ExplFileDate}{2.3.1}{\ExplFileDescription}
+\cs_new_protected:Nn \__sjtu_set_cjk_default_zh:
+  {
+    \tl_set:Nn \CJKrmdefault { zhsong }
+    \tl_set:Nn \CJKsfdefault { zhhei  }
+    \tl_set:Nn \CJKttdefault { zhfs   }
+  }
+\NewHook { sjtutex / lang / zh }
+\keys_define:nn { sjtu / private }
+  {
+    lang / zh .code:n =
+      {
+        \tl_set_eq:NN \l__sjtu_lang_tl \l_keys_value_tl
+        \__sjtu_set_cjk_default_zh:
+        \normalfont
+        \UseHook { sjtutex / lang / zh }
+      } ,
+    zh .meta:n = { lang = zh } ,
+    zh .groups:n = { lang }
+  }
+\AddToHook { sjtutex / lang / zh }
+  {
+    \tl_set:Nn \languagename { chinese }
+    \ctex_set:n { autoindent = true }
+  }
+\cs_set_eq:NN \__sjtu_title_case_aux_zh:n \use:n
+\clist_map_inline:nn
+  {
+    { year  } { 年 } ,
+    { month } { 月 } ,
+    { day   } { 日 }
+  }
+  { \__sjtu_name_const:nnn { zh } #1 }
+\cs_new:Npn \__sjtu_date_aux_zh:nnn #1#2#3
+  {
+    \int_to_arabic:n {#1} ~ { \exp_not:V \c__sjtu_name_year_zh_tl  } ~
+    \int_to_arabic:n {#2} ~ { \exp_not:V \c__sjtu_name_month_zh_tl } ~
+    \int_to_arabic:n {#3} ~ { \exp_not:V \c__sjtu_name_day_zh_tl   }
+  }
+\cs_new:Npn \__sjtu_date_aux_zh:w #1-#2-#3 \q_stop
+  { \__sjtu_date_aux_zh:nnn {#1} {#2} {#3} }
+\cs_new:Npn \__sjtu_date_aux_short_zh:nn #1#2
+  {
+    \int_to_arabic:n {#1} ~ { \exp_not:V \c__sjtu_name_year_zh_tl  } ~
+    \int_to_arabic:n {#2} ~ { \exp_not:V \c__sjtu_name_month_zh_tl }
+  }
+\cs_new:Npn \__sjtu_date_aux_short_zh:w #1-#2 \q_stop
+  { \__sjtu_date_aux_short_zh:nn {#1} {#2} }
+\clist_map_inline:nn
+  {
+    { keywords } { 关键词          } ,
+    { info_sep } { ： \null        } ,
+    { item_sep } { ，              }
+  }
+  { \__sjtu_name_const:nnn { zh } #1 }
+\IfClassLoadedF { sjtuthesis } { \endinput }
+\__sjtu_symbol_const:nn { white_square } { "25A1 }
+\__sjtu_name_const_from_clist:nnnn { zh }
+  { degree_level } { \g__sjtu_thesis_type_int }
+  { 学士, 硕士, 博士 }
+\clist_map_inline:nn
+  {
+    { univ             } { 上海交通大学           } ,
+    { address          } { 中国・上海             } ,
+    { thesis           } { 学位论文               } ,
+    { title_page       } { 题名页                 } ,
+    { declaration      } { 原创性声明及使用授权书 } ,
+    { orig_decl        } { 原创性声明             } ,
+    { auth_decl        } { 使用授权书             } ,
+    { decl_author      } { 学位论文作者           } ,
+    { decl_supervisor  } { 指导教师               } ,
+    { abstract         } { 摘 \protect \quad 要   }
+  }
+  { \__sjtu_name_const:nnn { zh } #1 }
+\tl_const:Nn \c__sjtu_name_subject_zh_tl
+  {
+    \c__sjtu_name_univ_zh_tl
+    \c__sjtu_name_degree_level_zh_tl
+    \c__sjtu_name_thesis_zh_tl
+  }
+\endinput
+%%
+%% End of file `sjtu-lang-zh.def'.

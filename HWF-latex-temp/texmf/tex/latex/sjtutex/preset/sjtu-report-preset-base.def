@@ -1,0 +1,119 @@
+%%
+%% This is file `sjtu-report-preset-base.def',
+%% generated with the docstrip utility.
+%%
+%% The original source files were:
+%%
+%% sjtutex.dtx  (with options: `preset,report')
+%% 
+%%     Copyright (C) SJTUG
+%%       2018--2026 Weijian Wu   <alexarawu@outlook.com>
+%%       2022--2026 Zilong Li    <logcreative@outlook.com>
+%%       2024--2026 Boshi Yuan   <nemoyuan2008@outlook.com>
+%% 
+%%     This work may be distributed and/or modified under the
+%%     conditions of the LaTeX Project Public License, either version 1.3c
+%%     of this license or (at your option) any later version.
+%%     The latest version of this license is in
+%%       https://www.latex-project.org/lppl.txt
+%%     and version 1.3c or later is part of all distributions of LaTeX
+%%     version 2008 or later.
+%% 
+\GetIdInfo$Id: sjtutex.dtx 19925b2 2026-02-26 23:13:21 +0800 Alexara Wu <alexarawu@outlook.com> $
+  {Report document preset for Shanghai Jiao Tong University (SJTUTeX)}
+\ProvidesExplFile{sjtu-report-preset-base.def}
+  {\ExplFileDate}{2.3.1}{\ExplFileDescription}
+\tl_new:N \l__sjtu_info_subject_tl
+\clist_new:N \l__sjtu_info_keywords_clist
+\keys_define:nn { sjtu / info }
+  {
+    title             .tl_set:N = \@title ,
+    author            .tl_set:N = \@author ,
+    display-date      .tl_set:N = \@date ,
+    subject           .tl_set:N = \l__sjtu_info_subject_tl ,
+    keywords       .clist_set:N = \l__sjtu_info_keywords_clist ,
+  }
+\NewDocumentCommand \subject  { m }
+  { \keys_set:nn { sjtu / info } { subject  = {#1} } }
+\NewDocumentCommand \keywords { m }
+  { \keys_set:nn { sjtu / info } { keywords = {#1} } }
+\keys_define:nn { sjtu / info }
+  {
+    date .code:n =
+      { \__sjtu_date_set:NVn \@date \g__sjtu_lang_tl {#1} }
+  }
+\AddToHook { env / abstract / end }
+  {
+    \clist_if_empty:NF \l__sjtu_info_keywords_clist
+      {
+        \par \mode_leave_vertical: \par
+        \__sjtu_keywords_format:n
+          {
+            \tl_use:c { c__sjtu_name_keywords_ \g__sjtu_lang_tl _tl }
+            \tl_use:c { c__sjtu_name_info_sep_ \g__sjtu_lang_tl _tl }
+          }
+        \clist_use:Nv \l__sjtu_info_keywords_clist
+          { c__sjtu_name_item_sep_ \g__sjtu_lang_tl _tl }
+        \par
+      }
+  }
+\tl_set:Nn \SJTU@leaders { \titlerule* [ 4bp ] { . } }
+\contentsmargin [ 2.55 em ] { 0 pt }
+\titlecontents { chapter }
+  [ 0 pt ] { \addvspace { 6 bp } \bfseries }
+  { \contentspush { \thecontentslabel \enskip } } { }
+  { \SJTU@leaders \thecontentspage }
+\titlecontents { section }
+  [ 2 em ] { }
+  { \contentspush { \thecontentslabel \enskip } } { }
+  { \SJTU@leaders \thecontentspage }
+\titlecontents { subsection }
+  [ 4 em ] { }
+  { \contentspush { \thecontentslabel \enskip } } { }
+  { \SJTU@leaders \thecontentspage }
+\NewDocumentCommand \SJTU@titlecontents { m O{\csname ext@#1\endcsname} m o }
+  {
+    \IfNoValueTF {#4}
+      {
+        \titlecontents {#1}
+          [ 0 pt ] { }
+          { \contentspush { #3 \thecontentslabel \enskip } } { }
+          { \SJTU@leaders \thecontentspage }
+      }
+      {
+        \titlecontents {#1}
+          [#4] { }
+          { \contentslabel [ #3 \thecontentslabel ] {#4} }
+          { \hspace* { - #4 } }
+          { \SJTU@leaders \thecontentspage }
+      }
+    \contentsuse {#1} {#2}
+  }
+\SJTU@titlecontents { figure } { \figurename \space }
+\SJTU@titlecontents { table  } { \tablename  \space }
+\ctex_at_end_package:nn { hyperref }
+  {
+    \ctex_after_end_preamble:n
+      {
+        \hypersetup
+          {
+            pdfsubject  = \l__sjtu_info_subject_tl ,
+            pdfkeywords = \l__sjtu_info_keywords_clist
+          }
+      }
+  }
+\ctex_at_end_package:nn { thmtools }
+  {
+    \cs_set:Npn \thmtlo@newentry
+      {
+        \exp_args:NV \SJTU@titlecontents \thmt@envname [ loe ]
+          { } [ \thmt@listnumwidth ]
+      }
+  }
+\ctex_at_end_package:nn { algorithm }
+  { \SJTU@titlecontents { algorithm } { \fname@algorithm \space } }
+\ctex_at_end_package:nn { algorithm2e }
+  { \SJTU@titlecontents { algocf } { \algorithmcfname \space } }
+\endinput
+%%
+%% End of file `sjtu-report-preset-base.def'.

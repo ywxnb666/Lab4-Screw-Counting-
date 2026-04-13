@@ -1,0 +1,13 @@
+# Python cache files
+__pycache__/
+*.pyc
+
+# Virtual environment
+venv/
+.env
+
+# Output files
+submission/output/
+
+# Model weights
+models/*.pt
