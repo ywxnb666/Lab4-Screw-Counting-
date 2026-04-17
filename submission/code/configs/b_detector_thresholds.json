@@ -3,8 +3,8 @@
     "type1": 0.46,
     "type2": 0.80,
     "type3": 0.52,
-    "type4": 0.89,
+    "type4": 0.45,
     "type5": 0.67
   },
-  "notes": "Best known 5-class detector-side thresholds from final_project. type0 intentionally omitted to suppress it."
+  "notes": "Best known 5-class detector-side thresholds for direct 1280 inference on real IMG_* validation images. type0 intentionally omitted to suppress it."
 }

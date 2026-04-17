@@ -3,15 +3,14 @@ modules/detector.py - 螺丝检测器模块
 Owner: B（检测数据与 detector）
 
 职责：
-  - 加载训练好的 one-class YOLO 螺丝检测器
-  - 支持 SAHI（Slicing Aided Hyper Inference）切片推理（针对 4K 视频）
+  - 加载训练好的 YOLO 螺丝检测器（当前以 5 类 detector 为主）
+  - 支持可选 SAHI（Slicing Aided Hyper Inference）切片推理
   - 对单帧或批量帧进行推理，返回 List[Detection]
   - 兜底：若模型权重不存在，自动切换到基于 OpenCV 的简单检测器
 
 TODO (B)：
-  [ ] 训练 one-class YOLO detector（权重放至 models/detector.pt）
-  [ ] 调整 CONF_THRESHOLD / IOU_THRESHOLD 至最优
-  [ ] 调整 SAHI 切片参数（slice_height / slice_width / overlap_ratio）
+  [ ] 继续在真实视频关键帧上校验 5 类 detector 的召回和误检
+  [ ] 视速度预算决定是否重新启用 SAHI
   [ ] 验证 FP16 推理在目标 GPU 上是否正常
   [ ] 在 3 段开发视频上测速并记录到 benchmark 报告
 
@@ -42,13 +41,13 @@ logger = logging.getLogger(__name__)
 # 超参数（B 负责调优）
 # ---------------------------------------------------------------------------
 
-CONF_THRESHOLD: float = 0.35    # 检测置信度阈值，低于此值的框被丢弃
-IOU_THRESHOLD: float = 0.45     # NMS IoU 阈值
-IMG_SIZE: int = 640             # YOLO 推理尺寸（正方形长边，SAHI 切片尺寸）
+CONF_THRESHOLD: float = 0.10    # 候选框收集阈值；最终保留由分类别阈值再过滤
+IOU_THRESHOLD: float = 0.60     # 与离线评测一致的 YOLO NMS IoU 阈值
+IMG_SIZE: int = 1280            # 与 v1 + per-class conf 离线评测一致的推理尺寸
 USE_FP16: bool = True           # 是否使用 FP16 半精度推理（需要 GPU）
-USE_SAHI: bool = True           # 是否启用 SAHI 切片推理（针对高分辨率图像）
-SAHI_SLICE_H: int = 640         # SAHI 切片高度
-SAHI_SLICE_W: int = 640         # SAHI 切片宽度
+USE_SAHI: bool = False          # 默认关闭，优先对齐离线最佳直接推理工作点
+SAHI_SLICE_H: int = 1280        # SAHI 切片高度
+SAHI_SLICE_W: int = 1280        # SAHI 切片宽度
 SAHI_OVERLAP: float = 0.20      # SAHI 切片重叠比例
 
 # 模型权重路径（相对于项目根目录）
@@ -159,12 +158,14 @@ class _FallbackDetector:
     def __init__(
         self,
         conf_threshold: float = CONF_THRESHOLD,
+        emit_warning: bool = True,
     ) -> None:
         self.conf_threshold = conf_threshold
-        logger.warning(
-            "⚠️  使用 OpenCV 兜底检测器（Hough + 轮廓）。"
-            "精度较低，请尽快提供 models/detector.pt。"
-        )
+        if emit_warning:
+            logger.warning(
+                "⚠️  使用 OpenCV 兜底检测器（Hough + 轮廓）。"
+                "精度较低，请尽快提供 models/detector.pt。"
+            )
 
     def detect(self, frame: np.ndarray, frame_id: int) -> List[Detection]:
         """
@@ -249,10 +250,10 @@ class _FallbackDetector:
 
 class YOLODetector:
     """
-    基于 Ultralytics YOLO 的 one-class 螺丝检测器。
+    基于 Ultralytics YOLO 的螺丝检测器。
 
     TODO (B)：
-    1. 确保 models/detector.pt 是以 one-class（仅 'screw'）训练的 YOLO 模型
+    1. 确保 models/detector.pt 与 submission 默认配置一致
     2. 根据实际 GPU 显存调整 IMG_SIZE 和 SAHI 参数
     3. 在 3 段开发视频上验证召回率 ≥ 90%
     4. 启用 model.track() 以获得 ByteTrack track_id（用于 A 的短时关联）
@@ -327,6 +328,17 @@ class YOLODetector:
         except Exception as e:
             logger.warning("读取类别阈值配置失败，忽略 %s: %s", self.class_conf_json_path, e)
 
+    def _effective_predict_conf(self) -> float:
+        """
+        返回送入 YOLO 的候选框收集阈值。
+
+        离线最佳配置使用 `imgsz=1280 + min_conf=0.10` 收集候选框，
+        然后再用分类别阈值二次过滤；这里保持同样的调用方式。
+        """
+        if not self._class_conf_map_norm:
+            return self.conf_threshold
+        return min(self.conf_threshold, min(self._class_conf_map_norm.values()))
+
     def _validate_class_conf_map(self) -> None:
         if not self._class_conf_map_norm:
             return
@@ -387,14 +399,22 @@ class YOLODetector:
             dummy = np.zeros((IMG_SIZE, IMG_SIZE, 3), dtype=np.uint8)
             self._model.predict(
                 dummy,
-                conf=self.conf_threshold,
+                conf=self._effective_predict_conf(),
                 iou=self.iou_threshold,
+                imgsz=IMG_SIZE,
                 half=self.use_fp16,
                 device=self.device or None,
                 verbose=False,
             )
 
             logger.info("✅ YOLO 模型加载完成: %s", self.weights_path)
+            logger.info(
+                "YOLO detector 默认工作点: imgsz=%d, collect_conf=%.2f, iou=%.2f, use_sahi=%s",
+                IMG_SIZE,
+                self._effective_predict_conf(),
+                self.iou_threshold,
+                self.use_sahi,
+            )
             self._loaded = True
 
             # SAHI 初始化
@@ -419,7 +439,7 @@ class YOLODetector:
             self._sahi_model = AutoDetectionModel.from_pretrained(
                 model_type="yolov8",
                 model_path=str(self.weights_path),
-                confidence_threshold=self.conf_threshold,
+                confidence_threshold=self._effective_predict_conf(),
                 device=self.device or "cpu",
             )
             logger.info("✅ SAHI 模型加载完成（切片: %dx%d, 重叠: %.0f%%）",
@@ -486,7 +506,7 @@ class YOLODetector:
     ) -> List[Detection]:
         """直接对整帧进行 YOLO 推理（适合 1080p 及以下）。"""
         kwargs = dict(
-            conf=self.conf_threshold,
+            conf=self._effective_predict_conf(),
             iou=self.iou_threshold,
             imgsz=IMG_SIZE,
             half=self.use_fp16,
@@ -524,6 +544,8 @@ class YOLODetector:
                 confidence=float(conf),
                 crop=crop,
                 track_id=int(tid),
+                class_id=int(cid),
+                class_name=cls_name,
             ))
 
         logger.debug(
@@ -590,6 +612,8 @@ class YOLODetector:
                     confidence=conf,
                     crop=crop,
                     track_id=-1,  # SAHI 不支持跟踪
+                    class_id=-1,
+                    class_name=class_name,
                 ))
 
             logger.debug(
@@ -680,10 +704,17 @@ class Detector:
             device=device,
         )
         # 若 YOLO 加载失败，使用兜底检测器
-        self._fallback = _FallbackDetector(conf_threshold=conf_threshold)
+        self._fallback = _FallbackDetector(
+            conf_threshold=conf_threshold,
+            emit_warning=False,
+        )
         self._use_fallback = not self._yolo._loaded
 
         if self._use_fallback:
+            logger.warning(
+                "⚠️  使用 OpenCV 兜底检测器（Hough + 轮廓）。"
+                "精度较低，请尽快提供 models/detector.pt。"
+            )
             logger.warning(
                 "Detector 已切换到兜底模式（OpenCV）。"
                 "最终提交前请确保 YOLO 模型可用！"

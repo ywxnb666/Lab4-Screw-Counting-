@@ -53,6 +53,19 @@ class Detection:
     同一物理螺丝在相邻帧的 track_id 应相同。
     """
 
+    class_id: int = -1
+    """
+    detector 直接输出的类别 ID。
+    - 对 one-class detector，通常固定为 0 或 -1；
+    - 对 multi-class detector，可用于在分类器缺失时做兼容投票。
+    """
+
+    class_name: str = ""
+    """
+    detector 直接输出的人类可读类别名，如 'type1'。
+    为空字符串表示 detector 未提供有效类别语义。
+    """
+
     def center(self) -> np.ndarray:
         """返回 bbox 中心点坐标 [cx, cy]（float32）。"""
         return np.array(
@@ -73,7 +86,8 @@ class Detection:
             f"Detection(frame={self.frame_id}, "
             f"bbox=[{self.bbox[0]:.1f},{self.bbox[1]:.1f},"
             f"{self.bbox[2]:.1f},{self.bbox[3]:.1f}], "
-            f"conf={self.confidence:.3f}, track_id={self.track_id})"
+            f"conf={self.confidence:.3f}, track_id={self.track_id}, "
+            f"class='{self.class_name or self.class_id}')"
         )
 
 

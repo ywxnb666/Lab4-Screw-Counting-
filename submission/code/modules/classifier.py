@@ -74,6 +74,67 @@ TODO (C)：可设为 0 简化，在效果差时再调整。
 DEFAULT_WEIGHTS = Path(__file__).parent.parent / "models" / "classifier.pt"
 
 
+def _normalize_detector_class_name(name: str) -> str:
+    """将 detector 输出的类别名归一化为 'type1' 这种形式。"""
+    return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+
+def _detector_name_to_pred_class(name: str) -> int:
+    """
+    将 detector 的类别名映射到 0-indexed 的 pred_class。
+
+    支持:
+    - type1 ~ type5
+    - type_1 ~ type_5（归一化后同样可识别）
+    """
+    norm = _normalize_detector_class_name(name)
+    if norm.startswith("type") and norm[4:].isdigit():
+        idx = int(norm[4:]) - 1
+        if 0 <= idx < NUM_CLASSES:
+            return idx
+    return -1
+
+
+def _classify_cluster_from_detector_votes(
+    cluster: Cluster,
+    conf_weight_exponent: float = CONF_WEIGHT_EXPONENT,
+) -> Cluster:
+    """
+    在分类器不可用时，直接使用 multi-class detector 的类别结果做 Cluster 投票。
+
+    仅当 observations 中存在可识别的 type1~type5 类别时才应调用。
+    """
+    weights = np.zeros(NUM_CLASSES, dtype=np.float32)
+
+    for det in cluster.observations:
+        cls_idx = _detector_name_to_pred_class(getattr(det, "class_name", ""))
+        if cls_idx < 0:
+            continue
+        weights[cls_idx] += float(det.confidence) ** conf_weight_exponent
+
+    if weights.sum() <= 0:
+        return cluster
+
+    probs = weights / weights.sum()
+    cluster.class_probs = probs.astype(np.float32)
+    cluster.pred_class = int(probs.argmax())
+    logger.debug(
+        "Cluster #%d 使用 detector 多类结果完成兼容分类: %s (probs=%s)",
+        cluster.cluster_id,
+        cluster.type_label,
+        np.round(probs, 3),
+    )
+    return cluster
+
+
+def _cluster_has_detector_multiclass_labels(cluster: Cluster) -> bool:
+    """检查一个 Cluster 是否包含可直接用于计数的 detector 多类标签。"""
+    for det in cluster.observations:
+        if _detector_name_to_pred_class(getattr(det, "class_name", "")) >= 0:
+            return True
+    return False
+
+
 # ---------------------------------------------------------------------------
 # 图像预处理工具
 # ---------------------------------------------------------------------------
@@ -716,6 +777,13 @@ class ScrewClassifier:
         logger.info("开始对 %d 个 Cluster 进行分类...", len(clusters))
 
         for cluster in clusters:
+            if (not self.is_torch_mode) and _cluster_has_detector_multiclass_labels(cluster):
+                _classify_cluster_from_detector_votes(
+                    cluster,
+                    conf_weight_exponent=self.conf_weight_exponent,
+                )
+                continue
+
             classify_cluster_with_votes(
                 cluster,
                 self._backend,
