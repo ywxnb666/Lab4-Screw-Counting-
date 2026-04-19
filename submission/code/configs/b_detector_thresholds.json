@@ -6,5 +6,5 @@
     "type4": 0.45,
     "type5": 0.67
   },
-  "notes": "Best known 5-class detector-side thresholds for direct 1280 inference on real IMG_* validation images. type0 intentionally omitted to suppress it."
+  "notes": "Updated by 0.01-step coordinate search under DBSCAN dedup on video_exp/true_count.json with run.py-aligned pipeline settings. type0 intentionally omitted to suppress it."
 }

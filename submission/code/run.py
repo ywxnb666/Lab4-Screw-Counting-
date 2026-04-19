@@ -25,6 +25,7 @@ import time
 from pathlib import Path
 from typing import Dict, List, Optional
 
+import cv2
 import numpy as np
 
 # ---------------------------------------------------------------------------
@@ -33,6 +34,9 @@ import numpy as np
 _PROJECT_ROOT = Path(__file__).parent.resolve()
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
+
+_DBSCAN_THRESHOLDS_JSON = _PROJECT_ROOT / "configs" / "b_detector_thresholds.json"
+_INCREMENTAL_THRESHOLDS_JSON = _PROJECT_ROOT / "configs" / "b_detector_thresholds_incremental.json"
 
 
 # ---------------------------------------------------------------------------
@@ -86,6 +90,7 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
     --keyframe_strategy: 关键帧提取策略
     --dist_thresh      : 去重聚类距离阈值（像素）
     --min_observations : Cluster 最少观测次数
+    --dedup_method     : 去重后端（dbscan / incremental）
     --detector_weights : 检测器权重路径（覆盖默认路径）
     --classifier_weights: 分类器权重路径（覆盖默认路径）
     --dry_run          : 仅列出视频，不执行处理
@@ -180,6 +185,13 @@ def _parse_args(argv: Optional[List[str]] = None) -> argparse.Namespace:
         type=int,
         default=1,
         help="Cluster 最少观测次数，低于此值的 Cluster 将被过滤（默认 1，即不过滤）。",
+    )
+    optional.add_argument(
+        "--dedup_method",
+        type=str,
+        default="dbscan",
+        choices=["dbscan", "incremental"],
+        help="去重后端：dbscan 或 incremental（默认 dbscan）。",
     )
     optional.add_argument(
         "--detector_weights",
@@ -285,6 +297,105 @@ def _validate_args(args: argparse.Namespace, logger: logging.Logger) -> bool:
     return ok
 
 
+def _build_count_videos_args(args: argparse.Namespace) -> argparse.Namespace:
+    """
+    构造 count_videos._process_video 所需参数。
+
+    该后端在当前仓库上计数准确率更高，run.py 复用其默认高质量配置。
+    """
+    detector_weights = args.detector_weights or "./models/detector.pt"
+    classifier_weights = args.classifier_weights or "./models/classifier.pt"
+    return argparse.Namespace(
+        keyframe_strategy="uniform",
+        uniform_count=30,
+        detector_weights=detector_weights,
+        device=args.device,
+        no_fp16=args.no_fp16,
+        use_sahi=False,
+        feature_type="ORB",
+        anchor_strategy="first",
+        anchor_count=10,
+        inlier_ratio_threshold=0.25,
+        min_match_count=15,
+        dist_thresh=args.dist_thresh,
+        min_observations=max(4, args.min_observations),
+        dedup_method=args.dedup_method,
+        invalid_reg_fallback="skip",
+        count_mode="detector_votes",
+        classifier_weights=classifier_weights,
+    )
+
+
+def _make_count_overlay_mask(
+    video_path: Path,
+    counts: List[int],
+    detector=None,
+    visualizer=None,
+) -> Optional[np.ndarray]:
+    """
+    生成轻量 mask 叠加图，确保 run.py 按作业规范输出 mask 文件。
+
+    计数来自 count_videos 后端；这里用中间帧叠加计数文本作为提交所需可视化。
+    """
+    from utils.video_io import VideoReader
+
+    frame: Optional[np.ndarray] = None
+    mid_frame_id: int = 0
+    with VideoReader(video_path) as reader:
+        frame = reader.read_mid_frame()
+        mid_frame_id = reader.meta.mid_frame_id
+
+    if frame is None:
+        return None
+
+    overlay = frame.copy()
+
+    # 优先使用 detector 的实例分割掩膜；若不可用则回退到文字面板叠加。
+    if detector is not None and visualizer is not None:
+        try:
+            detections = detector.detect(frame, frame_id=mid_frame_id, enable_tracking=False)
+            if detections:
+                overlay = visualizer.draw_detections(
+                    frame,
+                    detections,
+                    draw_mask=True,
+                    draw_bbox=True,
+                    use_detection_class_color=True,
+                )
+        except Exception:
+            # 保持稳健：mask 渲染失败不影响主流程计数输出。
+            overlay = frame.copy()
+
+    h, w = overlay.shape[:2]
+    panel_w = min(w - 20, 420)
+    panel_h = min(h - 20, 170)
+    x0, y0 = 10, 10
+    panel = overlay.copy()
+    cv2.rectangle(panel, (x0, y0), (x0 + panel_w, y0 + panel_h), (20, 20, 20), -1)
+    cv2.addWeighted(panel, 0.45, overlay, 0.55, 0.0, overlay)
+
+    lines = [
+        "Count backend: count_videos",
+        f"Total: {sum(counts)}",
+        f"Type_1..5: {counts[0]}, {counts[1]}, {counts[2]}, {counts[3]}, {counts[4]}",
+    ]
+    y = y0 + 35
+    for line in lines:
+        cv2.putText(
+            overlay,
+            line,
+            (x0 + 12, y),
+            cv2.FONT_HERSHEY_SIMPLEX,
+            0.72,
+            (240, 240, 240),
+            2,
+            cv2.LINE_AA,
+        )
+        y += 42
+
+    return overlay
+
+
 # ---------------------------------------------------------------------------
 # 主函数
 # ---------------------------------------------------------------------------
@@ -323,6 +434,7 @@ def main(argv: Optional[List[str]] = None) -> int:
     logger.info("  keyframe_strategy : %s", args.keyframe_strategy)
     logger.info("  dist_thresh       : %.1f", args.dist_thresh)
     logger.info("  min_observations  : %d", args.min_observations)
+    logger.info("  dedup_method      : %s", args.dedup_method)
 
     # ---- 验证参数 ----
     if not _validate_args(args, logger):
@@ -351,30 +463,39 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.info("dry_run 模式已启用，不执行处理。退出。")
         return 0
 
-    # ---- 初始化流水线 ----
-    from pipeline import VideoPipeline
+    # ---- 初始化 count_videos 计数后端 ----
+    from count_videos import _process_video as count_process_video
+    from modules.detector import Detector
     from utils.output_formatter import OutputFormatter
+    from utils.visualizer import Visualizer
 
-    detector_weights = (
-        Path(args.detector_weights) if args.detector_weights else None
+    count_args = _build_count_videos_args(args)
+    detector_weights = Path(count_args.detector_weights)
+    class_conf_json = (
+        _INCREMENTAL_THRESHOLDS_JSON
+        if args.dedup_method == "incremental"
+        else _DBSCAN_THRESHOLDS_JSON
     )
-    classifier_weights = (
-        Path(args.classifier_weights) if args.classifier_weights else None
-    )
+
+    if not class_conf_json.exists():
+        logger.error("阈值配置文件不存在: %s", class_conf_json)
+        return 1
+
+    logger.info("  detector_conf_json: %s", class_conf_json)
 
     try:
-        pipeline = VideoPipeline(
-            detector_weights=detector_weights,
-            classifier_weights=classifier_weights,
+        detector = Detector(
+            weights_path=detector_weights,
+            class_conf_json_path=class_conf_json,
             use_fp16=not args.no_fp16,
+            use_sahi=False,
             device=args.device,
-            keyframe_strategy=args.keyframe_strategy,
-            dist_thresh=args.dist_thresh,
-            min_observations=args.min_observations,
         )
     except Exception as e:
-        logger.error("流水线初始化失败: %s", e, exc_info=args.verbose)
+        logger.error("count_videos 后端初始化失败: %s", e, exc_info=args.verbose)
         return 1
+
+    visualizer = Visualizer(mask_alpha=0.40, show_label=True, use_circle_mask=True)
 
     # ---- 初始化输出封装器 ----
     formatter = OutputFormatter(
@@ -399,32 +520,43 @@ def main(argv: Optional[List[str]] = None) -> int:
         t_video_start = time.perf_counter()
 
         try:
-            result = pipeline.process_video(video_path)
+            backend_result = count_process_video(video_path, count_args, detector)
 
             t_video_end = time.perf_counter()
             video_elapsed = t_video_end - t_video_start
 
-            results[result.video_name] = result.counts
-            mask_img = getattr(result, "_mask_image", None)
-            masks[result.video_name] = mask_img
+            if backend_result.get("status") != "ok":
+                err = str(backend_result.get("error", "unknown backend error"))
+                raise RuntimeError(err)
+
+            counts = [int(v) for v in backend_result.get("counts", [0, 0, 0, 0, 0])]
+            results[video_name] = counts
+
+            mask_img = _make_count_overlay_mask(
+                video_path,
+                counts,
+                detector=detector,
+                visualizer=visualizer,
+            )
+            masks[video_name] = mask_img
 
             logger.info(
                 "  ✅ 完成: %s  计数=%s  耗时=%.2fs",
-                result.video_name, result.counts, video_elapsed,
+                video_name, counts, video_elapsed,
             )
 
             # 实时保存 mask（防止后续视频出错导致前面结果丢失）
             if mask_img is not None:
                 try:
-                    formatter.save_mask(result.video_name, mask_img)
+                    formatter.save_mask(video_name, mask_img)
                 except Exception as mask_e:
                     logger.warning(
-                        "  ⚠️ mask 保存失败 (%s): %s", result.video_name, mask_e
+                        "  ⚠️ mask 保存失败 (%s): %s", video_name, mask_e
                     )
             else:
                 logger.warning(
                     "  ⚠️ 视频 '%s' 的 mask 图像为空，跳过保存。",
-                    result.video_name,
+                    video_name,
                 )
 
         except FileNotFoundError as e:
@@ -543,7 +675,7 @@ def _check_dependencies() -> None:
     ]:
         try:
             __import__(import_name)
-        except ImportError:
+        except Exception:
             missing.append(pkg)
 
     # 可选依赖（缺失时性能降级，但不影响运行）
@@ -556,7 +688,7 @@ def _check_dependencies() -> None:
     ]:
         try:
             __import__(import_name)
-        except ImportError:
+        except Exception:
             optional_missing.append(pkg)
 
     if missing:

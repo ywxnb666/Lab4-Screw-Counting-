@@ -1,0 +1,10 @@
+{
+  "class_conf_thresholds": {
+    "type1": 0.68,
+    "type2": 0.80,
+    "type3": 0.85,
+    "type4": 0.01,
+    "type5": 0.67
+  },
+  "notes": "Thresholds tuned for incremental dedup mode. type0 intentionally omitted to suppress it."
+}

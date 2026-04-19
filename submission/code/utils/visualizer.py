@@ -193,6 +193,48 @@ def draw_circle_mask(
     return canvas
 
 
+def draw_binary_mask(
+    canvas: np.ndarray,
+    binary_mask: np.ndarray,
+    color: Tuple[int, int, int],
+    alpha: float = 0.45,
+) -> np.ndarray:
+    """
+    将单实例二值掩膜以半透明颜色叠加到图像上。
+
+    Parameters
+    ----------
+    canvas : np.ndarray
+        目标图像（原地修改）。
+    binary_mask : np.ndarray
+        H×W 的二值图，非零区域将被着色。
+    color : Tuple[int, int, int]
+        BGR 颜色。
+    alpha : float
+        透明度。
+
+    Returns
+    -------
+    np.ndarray : 绘制后的图像。
+    """
+    if binary_mask is None or binary_mask.size == 0:
+        return canvas
+
+    h, w = canvas.shape[:2]
+    mask = (binary_mask > 0).astype(np.uint8)
+    if mask.shape != (h, w):
+        mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+        mask = (mask > 0).astype(np.uint8)
+
+    if mask.sum() == 0:
+        return canvas
+
+    overlay = canvas.copy()
+    overlay[mask > 0] = color
+    cv2.addWeighted(overlay, alpha, canvas, 1 - alpha, 0, canvas)
+    return canvas
+
+
 # ---------------------------------------------------------------------------
 # 主可视化类
 # ---------------------------------------------------------------------------
@@ -319,9 +361,12 @@ class Visualizer:
         frame: np.ndarray,
         detections: List[Detection],
         color: Tuple[int, int, int] = (0, 255, 128),
+        draw_mask: bool = True,
+        draw_bbox: bool = True,
+        use_detection_class_color: bool = True,
     ) -> np.ndarray:
         """
-        在帧上绘制原始检测框（调试用，未去重）。
+        在帧上绘制原始检测结果（可选实例掩膜 + bbox）。
 
         Parameters
         ----------
@@ -330,7 +375,13 @@ class Visualizer:
         detections : List[Detection]
             该帧的检测结果。
         color : Tuple[int, int, int]
-            框颜色（默认绿色）。
+            默认颜色（当不按类别着色时使用）。
+        draw_mask : bool
+            是否绘制实例掩膜（若 Detection.seg_mask 可用）。
+        draw_bbox : bool
+            是否绘制检测框。
+        use_detection_class_color : bool
+            True 时按 detector 类别着色；False 时统一使用 color。
 
         Returns
         -------
@@ -338,10 +389,21 @@ class Visualizer:
         """
         canvas = frame.copy()
         for det in detections:
+            det_color = color
+            if use_detection_class_color and det.class_id >= 0:
+                det_color = _get_color(det.class_id)
+
+            if draw_mask and det.seg_mask is not None:
+                draw_binary_mask(canvas, det.seg_mask, det_color, self.mask_alpha)
+
             label = f"{det.confidence:.2f}" if self.show_confidence else None
+            if self.show_label and det.class_name:
+                label = det.class_name + (f" {det.confidence:.2f}" if self.show_confidence else "")
             if det.track_id >= 0:
                 label = f"T{det.track_id}" + (f" {det.confidence:.2f}" if self.show_confidence else "")
-            _draw_bbox_simple(canvas, det.bbox, color, self.bbox_thickness, label, self.font_scale)
+
+            if draw_bbox:
+                _draw_bbox_simple(canvas, det.bbox, det_color, self.bbox_thickness, label, self.font_scale)
         return canvas
 
     # ------------------------------------------------------------------

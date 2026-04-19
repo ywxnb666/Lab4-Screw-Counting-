@@ -66,6 +66,12 @@ class Detection:
     为空字符串表示 detector 未提供有效类别语义。
     """
 
+    seg_mask: Optional[np.ndarray] = None
+    """
+    实例分割掩膜，形状 (H, W) 的 uint8 二值图（0/1）。
+    坐标基于当前 frame 的原始分辨率；None 表示 detector 未提供分割结果。
+    """
+
     def center(self) -> np.ndarray:
         """返回 bbox 中心点坐标 [cx, cy]（float32）。"""
         return np.array(

@@ -527,13 +527,14 @@ class YOLODetector:
         boxes_xyxy = r.boxes.xyxy.cpu().numpy()       # (N, 4)
         confidences = r.boxes.conf.cpu().numpy()       # (N,)
         class_ids = r.boxes.cls.cpu().numpy().astype(int) if r.boxes.cls is not None else np.zeros(len(boxes_xyxy), dtype=int)
+        seg_masks = self._extract_seg_masks(r, frame.shape[:2])
         track_ids_arr = (
             r.boxes.id.cpu().numpy().astype(int)
             if (enable_tracking and r.boxes.id is not None)
             else np.full(len(boxes_xyxy), -1, dtype=int)
         )
 
-        for bbox, conf, tid, cid in zip(boxes_xyxy, confidences, track_ids_arr, class_ids):
+        for i, (bbox, conf, tid, cid) in enumerate(zip(boxes_xyxy, confidences, track_ids_arr, class_ids)):
             cls_name = self._model_names.get(int(cid), str(int(cid)))
             if not self._pass_class_conf(cls_name, float(conf)):
                 continue
@@ -546,6 +547,7 @@ class YOLODetector:
                 track_id=int(tid),
                 class_id=int(cid),
                 class_name=cls_name,
+                seg_mask=seg_masks[i],
             ))
 
         logger.debug(
@@ -553,6 +555,40 @@ class YOLODetector:
             frame_id, len(detections),
         )
         return detections
+
+    @staticmethod
+    def _extract_seg_masks(result, frame_shape: Tuple[int, int]) -> List[Optional[np.ndarray]]:
+        """
+        从 Ultralytics 单帧结果中提取并对齐实例分割掩膜。
+
+        返回与 boxes 一一对应的 mask 列表；若该实例无 mask 则为 None。
+        """
+        if result is None or result.boxes is None:
+            return []
+
+        n = len(result.boxes)
+        masks: List[Optional[np.ndarray]] = [None] * n
+        masks_obj = getattr(result, "masks", None)
+        if masks_obj is None or getattr(masks_obj, "data", None) is None:
+            return masks
+
+        try:
+            raw = masks_obj.data.cpu().numpy()  # (N, Hm, Wm)
+        except Exception:
+            return masks
+
+        if raw.ndim != 3:
+            return masks
+
+        h, w = frame_shape
+        count = min(n, raw.shape[0])
+        for i in range(count):
+            m = (raw[i] > 0.5).astype(np.uint8)
+            if m.shape != (h, w):
+                m = cv2.resize(m, (w, h), interpolation=cv2.INTER_NEAREST)
+                m = (m > 0).astype(np.uint8)
+            masks[i] = m
+        return masks
 
     def _detect_with_sahi(
         self,

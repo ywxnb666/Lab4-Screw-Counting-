@@ -497,16 +497,36 @@ def process_video(
 
     mask_image: Optional[np.ndarray] = None
     if mid_frame is not None:
-        # 若 Cluster 没有 ref_bbox（配准全失败时），尝试用最近关键帧的检测框代替
-        _ensure_clusters_have_bbox(classified_clusters, all_detections, valid_kf_ids, mid_frame_id)
+        # 优先使用 detector 的实例分割掩膜（YOLO-seg）。
+        # 若该帧未返回有效 seg_mask，则回退到原有的 cluster 可视化逻辑。
+        mid_detections = detector.detect(mid_frame, mid_frame_id, enable_tracking=False)
+        n_seg = sum(1 for d in mid_detections if d.seg_mask is not None)
 
-        mask_image = visualizer.draw_clusters(
-            mid_frame,
-            classified_clusters,
-            draw_bbox=True,
-            draw_mask=True,
-            draw_id=False,
-        )
+        if n_seg > 0:
+            logger.info(
+                "[Step 8] 使用 YOLO-seg 实例掩膜渲染 mask：%d 个检测，%d 个实例掩膜。",
+                len(mid_detections),
+                n_seg,
+            )
+            mask_image = visualizer.draw_detections(
+                mid_frame,
+                mid_detections,
+                draw_mask=True,
+                draw_bbox=True,
+                use_detection_class_color=True,
+            )
+        else:
+            logger.info("[Step 8] 当前帧无可用实例掩膜，回退到 cluster 掩膜渲染。")
+            # 若 Cluster 没有 ref_bbox（配准全失败时），尝试用最近关键帧的检测框代替
+            _ensure_clusters_have_bbox(classified_clusters, all_detections, valid_kf_ids, mid_frame_id)
+
+            mask_image = visualizer.draw_clusters(
+                mid_frame,
+                classified_clusters,
+                draw_bbox=True,
+                draw_mask=True,
+                draw_id=False,
+            )
 
         # 在 mask 图左上角写入计数摘要
         count_lines = [
