@@ -1,66 +1,23 @@
-# ============================================================
-# 视频螺丝计数项目依赖清单
-# Lab4 团队作业 - requirements.txt
-# Owner: D（工程封装）
-#
-# 安装方式（推荐在虚拟环境中执行）：
-#   pip install -r requirements.txt
-#
-# 注意：torch/torchvision 的 CUDA 版本需根据实际 GPU 驱动选择，
-#       下方版本适用于 CUDA 12.x（RTX 4060 等 Ada 架构）。
-#       CPU 用户可直接安装不含 +cuXXX 的版本。
-# ============================================================
+# Generated from current repository imports + conda env: cv (Python 3.10.20)
+# Merged with previous requirements.txt; requirement.txt content takes precedence.
+# Purpose: minimal dependencies to run run.py / count_videos.py with dbscan/incremental dedup.
 
-# ---- 必需依赖（核心运行依赖，缺少则无法启动）----
+# Core runtime dependencies
+numpy==2.2.6
+opencv-python==4.13.0.92
+torch==2.10.0
+torchvision==0.25.0
+ultralytics==8.4.24
+scikit-learn==1.7.2
 
-# 图像处理与视频读取
-opencv-python>=4.8.0
+# Optional dependencies
+# Pillow is used when SAHI path is enabled in detector (_detect_with_sahi).
+Pillow==12.1.1
 
-# 数值计算
-numpy>=1.24.0
+# SAHI is optional in this repo (run.py uses use_sahi=False by default).
+# Install if you want sliced inference on high-res frames:
+# sahi==<version in your target env>
 
-# ---- 深度学习框架（强烈推荐，缺少则使用兜底 OpenCV 检测器/随机分类器）----
-# 注意：如需 CUDA 加速，请参考 https://pytorch.org/ 选择对应版本命令，
-#       例如 CUDA 12.1：pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
-
-torch>=2.0.0
-torchvision>=0.15.0
-
-# YOLO 检测器（ultralytics 封装，含 ByteTrack 跟踪）
-ultralytics>=8.0.0
-
-# ---- 检测增强（可选但强烈推荐，用于 4K 高分辨率视频的小目标检测）----
-
-# SAHI 切片推理
-sahi>=0.11.14
-
-# ---- 聚类与科学计算（A 的去重模块依赖）----
-
-# DBSCAN 聚类（用于全局去重）
-scikit-learn>=1.3.0
-
-# 科学计算
-scipy>=1.11.0
-
-# ---- 图像工具（可选，用于 crop 预处理和图像尺寸读取）----
-
-Pillow>=9.5.0
-
-# ---- 系统监控（可选，用于 benchmark 中的内存监控）----
-
-psutil>=5.9.0
-
-# ---- 报告与工具（可选，用于消融实验的表格美化输出）----
-
-tabulate>=0.9.0
-
-# ---- 数据标注格式转换（标准库已包含 xml.etree.ElementTree，无需额外安装）----
-# 无额外依赖
-
-# ============================================================
-# 版本固定说明：
-#   - opencv-python 和 numpy 版本较宽松，兼容大多数 Python 3.8+ 环境
-#   - torch/torchvision 版本需与 CUDA 驱动匹配，建议根据官网选择
-#   - ultralytics 8.x 包含 YOLOv8 和 YOLOv11 系列模型
-#   - sahi 0.11.x 支持 ultralytics 后端
-# ============================================================
+# Tooling-only optional dependencies (not required by run.py main pipeline)
+# psutil==7.2.2
+# tabulate==0.10.0
