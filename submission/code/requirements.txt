@@ -1,4 +1,4 @@
-# Generated from current repository imports + conda env: cv (Python 3.10.20)
+# Generated from current repository imports + conda env: screw_count (Python 3.10.x)
 # Merged with previous requirements.txt; requirement.txt content takes precedence.
 # Purpose: minimal dependencies to run run.py / count_videos.py with dbscan/incremental dedup.
 

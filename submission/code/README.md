@@ -83,6 +83,13 @@ models/
 
 ## 运行方式
 
+**运行环境**：请在 Conda 环境 **`screw_count`** 下执行（见上文「创建并激活 Conda 环境」）。  
+若不想每次手动 `activate`，也可用：
+
+```bash
+conda run -n screw_count python run.py --data_dir ... --output_path ... --output_time_path ... --mask_output_path ...
+```
+
 ### 标准运行命令（作业规范接口）
 
 ```bash
