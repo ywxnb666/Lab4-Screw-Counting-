@@ -360,11 +360,15 @@ class VideoReader:
         self,
         frame_ids: List[int],
         yield_low_res: bool = True,
+        seek_threshold: int = 30,
     ) -> Generator[Tuple[int, np.ndarray, Optional[np.ndarray]], None, None]:
         """
-        按指定帧编号列表顺序读取帧（单向顺序访问，效率优于随机 seek）。
+        按指定帧编号列表读取帧。
 
-        当 frame_ids 已排序且连续时效率最高；若有跳帧会自动跳过中间帧。
+        H.264/HEVC 视频的 P/B 帧需从前方 I 帧逐帧解码。当相邻目标帧间距
+        小于一个 GOP（典型值 30 帧）时，顺序读取比 seek 更高效（因为无需重复
+        从 I 帧解码）；当间距超过一个 GOP 时，seek 可跳过大段无关 I-frame，
+        节省总解码量。seek_threshold 用于控制切换阈值。
 
         Parameters
         ----------
@@ -372,6 +376,10 @@ class VideoReader:
             需要读取的帧编号列表，**必须升序排列**。
         yield_low_res : bool
             是否同时产出低分辨率帧。
+        seek_threshold : int
+            间距阈值（帧数）：相邻目标帧间距 > seek_threshold 时使用 seek，
+            否则顺序读取。默认 30（约一个 GOP），适配 30fps 的 iPhone/手机视频。
+            对于间距约 10 帧的均匀采样场景，此默认值保持顺序读取以获得最优性能。
 
         Yields
         ------
@@ -389,12 +397,16 @@ class VideoReader:
                 logger.warning("帧编号 %d 超出总帧数 %d，跳过。", target_id, self.meta.frame_count)
                 continue
 
-            # 若需要向前跳帧，使用 seek
-            if target_id < current_pos:
+            gap = target_id - current_pos
+
+            # 间距超过 seek_threshold 或需要向前跳帧时，直接 seek 到目标帧。
+            # 对于 gap <= seek_threshold 的小间距，顺序读取更高效（复用已解码的 P 帧状态）。
+            if gap < 0 or gap > seek_threshold:
                 self._cap.set(cv2.CAP_PROP_POS_FRAMES, target_id)
                 current_pos = target_id
 
-            # 顺序读取直到目标帧
+            # 顺序读取直到目标帧（seek 后 gap=0，仅需一次 cap.read）
+            ret, cur_frame = False, None
             while current_pos <= target_id:
                 ret, frame = self._cap.read()
                 if not ret or frame is None:
@@ -402,7 +414,7 @@ class VideoReader:
                 cur_frame = frame
                 current_pos += 1
 
-            if not ret or frame is None:
+            if not ret or cur_frame is None:
                 logger.warning("读取帧 %d 失败。", target_id)
                 continue
 

@@ -295,16 +295,23 @@ def _process_video(
             frames_lr = [store[fid][1] for fid in frame_ids]
             full_res_scales = [reader.meta.low_res_scale] * len(frame_ids)
 
-            # 检测批次 = 有效关键帧 ∪ 中间帧（若已读出），避免中间帧再单独跑一遍 YOLO
+            # ── 批量检测：关键帧 ∪ 中间帧（保持 GPU 批次效率）──────────────
+            # per_frame_masks: 仅对中间帧生成 seg_mask（用于可视化），
+            # 关键帧跳过 seg_mask 的高分辨率 resize（4K 约节省 0.5~1.5s）。
             detect_fids = sorted((set(frame_ids) | {mid_frame_id}) & set(store.keys()))
             frames_det_hr = [store[fid][0] for fid in detect_fids]
+            per_frame_masks = [fid == mid_frame_id for fid in detect_fids]
 
             t_det0 = time.perf_counter()
-            batch_out = detector.detect_batch(frames_det_hr, detect_fids)
+            batch_out = detector.detect_batch(
+                frames_det_hr, detect_fids,
+                generate_masks=False,
+                per_frame_masks=per_frame_masks,
+            )
             timing["detect_s"] = time.perf_counter() - t_det0
 
             det_map = {fid: dets for fid, dets in zip(detect_fids, batch_out)}
-            all_detections = [det_map[fid] for fid in frame_ids]
+            all_detections = [det_map.get(fid, []) for fid in frame_ids]
 
             total_detections = sum(len(d) for d in all_detections)
             for index, (fid, dets) in enumerate(zip(frame_ids, all_detections), start=1):
@@ -319,7 +326,7 @@ def _process_video(
 
             mid_frame = store[mid_frame_id][0] if mid_frame_id in store else None
             mid_frame_detections = det_map.get(mid_frame_id, [])
-            timing["mid_frame_extra_detect_s"] = 0.0
+            timing["mid_frame_detect_s"] = 0.0
 
             if mid_frame is None:
                 mid_frame = reader.read_frame(mid_frame_id, low_res=False)
@@ -328,7 +335,7 @@ def _process_video(
                 mid_frame_detections = detector.detect(
                     mid_frame, frame_id=mid_frame_id, enable_tracking=False,
                 )
-                timing["mid_frame_extra_detect_s"] = time.perf_counter() - t_mid
+                timing["mid_frame_detect_s"] = time.perf_counter() - t_mid
 
             t_reg0 = time.perf_counter()
             registrations = registrar.register_sequence(
@@ -363,13 +370,13 @@ def _process_video(
             timing["count_vote_s"] = time.perf_counter() - t_cv0
 
             logger.info(
-                "[%s] 耗时拆分(s): kf=%.2f read=%.2f detect=%.2f mid_extra=%.2f register=%.2f "
+                "[%s] 耗时拆分(s): kf=%.2f read=%.2f detect=%.2f mid_detect=%.2f register=%.2f "
                 "dedup=%.2f count=%.2f",
                 video_path.stem,
                 timing["keyframe_extract_s"],
                 timing["read_keyframes_s"],
                 timing["detect_s"],
-                timing["mid_frame_extra_detect_s"],
+                timing["mid_frame_detect_s"],
                 timing["register_s"],
                 timing["dedup_s"],
                 timing["count_vote_s"],

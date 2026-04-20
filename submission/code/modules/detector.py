@@ -522,8 +522,16 @@ class YOLODetector:
         frame: np.ndarray,
         frame_id: int,
         enable_tracking: bool = False,
+        generate_masks: bool = True,
     ) -> List[Detection]:
-        """解析单帧 YOLO Result，与原先 _detect_direct 内逻辑一致。"""
+        """解析单帧 YOLO Result，与原先 _detect_direct 内逻辑一致。
+
+        Parameters
+        ----------
+        generate_masks : bool
+            是否提取并保存实例分割掩膜（seg_mask）。
+            对于仅用于去重聚类的关键帧检测，可设为 False 以节省内存和 CPU。
+        """
         detections: List[Detection] = []
         if r is None or r.boxes is None:
             return detections
@@ -535,7 +543,12 @@ class YOLODetector:
             if r.boxes.cls is not None
             else np.zeros(len(boxes_xyxy), dtype=int)
         )
-        seg_masks = self._extract_seg_masks(r, frame.shape[:2])
+        # 仅在需要时提取分割掩膜，避免对不需要可视化的帧（关键帧）做高分辨率 resize
+        seg_masks = (
+            self._extract_seg_masks(r, frame.shape[:2])
+            if generate_masks
+            else [None] * len(boxes_xyxy)
+        )
         track_ids_arr = (
             r.boxes.id.cpu().numpy().astype(int)
             if (enable_tracking and r.boxes.id is not None)
@@ -720,6 +733,8 @@ class YOLODetector:
         self,
         frames: List[np.ndarray],
         frame_ids: List[int],
+        generate_masks: bool = True,
+        per_frame_masks: Optional[List[bool]] = None,
     ) -> List[List[Detection]]:
         """
         批量对多帧推理（batch inference），效率高于逐帧调用 detect()。
@@ -734,6 +749,12 @@ class YOLODetector:
             帧列表，每帧 (H×W×3 BGR)。
         frame_ids : List[int]
             对应的帧编号列表。
+        generate_masks : bool
+            全局 seg_mask 开关。per_frame_masks 未设置时对所有帧生效。
+        per_frame_masks : List[bool] | None
+            逐帧 seg_mask 开关（长度需与 frames 一致）。若提供，则覆盖
+            generate_masks，允许仅为特定帧（如中间帧）生成 seg_mask，
+            跳过关键帧的高分辨率 seg_mask resize，显著节省 CPU 时间。
 
         Returns
         -------
@@ -766,9 +787,17 @@ class YOLODetector:
             else:
                 all_results = self._model.predict(frames, **kwargs)
             out: List[List[Detection]] = []
-            for r, fid, frame in zip(all_results, frame_ids, frames):
+            for idx, (r, fid, frame) in enumerate(zip(all_results, frame_ids, frames)):
+                if per_frame_masks is not None and idx < len(per_frame_masks):
+                    gen_mask = per_frame_masks[idx]
+                else:
+                    gen_mask = generate_masks
                 out.append(
-                    self._parse_single_result(r, frame, fid, enable_tracking=False),
+                    self._parse_single_result(
+                        r, frame, fid,
+                        enable_tracking=False,
+                        generate_masks=gen_mask,
+                    ),
                 )
             logger.debug(
                 "[YOLO 批量推理] %d 帧 batch=%d imgsz=%d",
@@ -877,6 +906,8 @@ class Detector:
         self,
         frames: List[np.ndarray],
         frame_ids: List[int],
+        generate_masks: bool = True,
+        per_frame_masks: Optional[List[bool]] = None,
     ) -> List[List[Detection]]:
         """
         批量对多帧检测，自动选择后端。
@@ -887,6 +918,10 @@ class Detector:
             帧列表。
         frame_ids : List[int]
             对应帧编号列表。
+        generate_masks : bool
+            全局 seg_mask 开关（per_frame_masks 未设置时生效）。
+        per_frame_masks : List[bool] | None
+            逐帧 seg_mask 开关，允许仅为特定帧（如中间帧）生成掩膜。
 
         Returns
         -------
@@ -894,4 +929,8 @@ class Detector:
         """
         if self._use_fallback:
             return [self._fallback.detect(f, fid) for f, fid in zip(frames, frame_ids)]
-        return self._yolo.detect_batch(frames, frame_ids)
+        return self._yolo.detect_batch(
+            frames, frame_ids,
+            generate_masks=generate_masks,
+            per_frame_masks=per_frame_masks,
+        )
